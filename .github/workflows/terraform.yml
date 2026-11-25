@@ -12,6 +12,9 @@ permissions:
   pull-requests: write
 
 jobs:
+  # ---------------------------------------------------------
+  # 1. DEV ENVIRONMENT
+  # ---------------------------------------------------------
   dev:
     name: Dev Environment
     runs-on: ubuntu-latest
@@ -19,19 +22,44 @@ jobs:
     defaults:
       run:
         working-directory: environments/dev
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Debug GitHub OIDC Token Claims
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=://amazonaws.com" | jq -r '.value')
+          echo $TOKEN | cut -d '.' -f2 | base64 -d 2>/dev/null | jq '{iss, aud, sub}'
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-southeast-2
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform fmt -check
-      - run: terraform init
-      - run: terraform plan -no-color
-      - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve
 
+  # ---------------------------------------------------------
+  # 2. PROD ENVIRONMENT
+  # ---------------------------------------------------------
   prod:
     name: Prod Environment
     needs: dev
@@ -40,15 +68,32 @@ jobs:
     defaults:
       run:
         working-directory: environments/prod
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ap-southeast-2
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform fmt -check
-      - run: terraform init
-      - run: terraform plan -no-color
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
       - if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        name: Terraform Apply
         run: terraform apply -auto-approve
